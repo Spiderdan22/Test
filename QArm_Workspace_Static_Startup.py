@@ -40,8 +40,7 @@ class QArmWorkspace:
         self.cellWidget = None
         self.conveyor = None
         self.shredder = None
-        self.arm1_cells_remaining = 0
-        self.arm2_cells_remaining = 0
+
     def connect_to_qlabs(self):
 
         ''' Connect to the Qlab virtual environment. '''
@@ -347,27 +346,25 @@ class QArmWorkspace:
         
         #  ADJUST THIS SECTION TO INCLUDE RANDOM CELL SIZE AND COLOUR
         # Create 4 cell widgets in a row  
-    def cell_spawn(self, arm_id):
+    def cell_spawn(self):
         self.cellWidget = QLabsWidget(self.qlabs)
         self.cellWidget.widget_spawn_shadow(enableShadow=True)
-        scale = [0.028, 0.028, 0.06]
-        colors = [[0.6, 0, 0], [0, 0.6, 0], [0, 0, 0.6]]
-        
-        if arm_id == 1 and self.arm1_cells_remaining == 0:
-            locations = [[0.58, -0.7, 0.4], [0.58, -0.8, 0.4], [0.58, -0.9, 0.4], [0.58, -1.0, 0.4]]
-            for loc in locations:
-                self.cellWidget.spawn(location=loc, rotation=[0,0,0], scale=scale, 
-                                    configuration=self.cellWidget.CYLINDER, color=colors[randrange(3)])
-            self.arm1_cells_remaining = 4
-            print("Arm 1 rack replenished.")
+        scale = [[0.028, 0.028, 0.06]]
+        color = [[0.6, 0, 0],[0,0.6,0],[0,0,0.6]] # 3 colors of random cell
+        locations = [[0.58, -0.7, 0.4], [0.58, -0.8, 0.4], [0.58, -0.9, 0.4], [0.58, -1, 0.4]]
 
-        elif arm_id == 2 and self.arm2_cells_remaining == 0:
-            locations = [[0.58, 0.7, 0.4], [0.58, 0.8, 0.4], [0.58, 0.9, 0.4], [0.58, 1.0, 0.4]]
-            for loc in locations:
-                self.cellWidget.spawn(location=loc, rotation=[0,0,0], scale=scale, 
-                                    configuration=self.cellWidget.CYLINDER, color=colors[randrange(3)])
-            self.arm2_cells_remaining = 4
-            print("Arm 2 rack replenished.")
+        for location in locations:
+            scale1 = randrange(1)
+            color1 = randrange(3)
+            self.cellWidget.spawn(location=location,
+                             rotation=[0, 0, 0],
+                             scale=scale[scale1],
+                             configuration= self.cellWidget.CYLINDER,
+                             color=color[color1],
+                             measuredMass=100,
+                             IDTag=0,
+                             properties='',
+                             waitForConfirmation=True)
 # endregion
     def control_conveyor(self, speed):
         ''' 
