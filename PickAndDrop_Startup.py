@@ -78,6 +78,9 @@ myArm = QArm(hardware = hardware, hilPortNumber = 18900)
 myArmUtilities = QArmUtilities()
 atHomePosition = False # Initialise flag for home position
 
+myArm2 = QArm(hardware = hardware, hilPortNumber = 18902)
+myArmUtilities2 = QArmUtilities()
+
 # Define sample rate for QArm
 sampleRate = 200
 sampleTime = 1 / sampleRate
@@ -87,8 +90,10 @@ print('Sample Rate is ', sampleRate, ' Hz. Simulation will run until you type Ct
 
 if hardware:
     id = '0'
+    id2 = '1' # Physical camera 2
 else:
-    id = '0@tcpip://localhost:18901' # Use this ID for virtual camera connections
+    id = '0@tcpip://localhost:18901' 
+    id2 = '0@tcpip://localhost:18903' # Virtual camera 2
 
 # Define parameters for camera (Do not change)
 imageWidth = 640
@@ -96,7 +101,9 @@ imageHeight = 480
 
 myCam = Camera3D(mode='RGB&DEPTH', frameWidthRGB=imageWidth, frameHeightRGB=imageHeight,
                   frameWidthDepth=imageWidth, frameHeightDepth=imageHeight, deviceId=id, readMode=0)
-
+# ADD THIS: Arm 2 Camera
+myCam2 = Camera3D(mode='RGB&DEPTH', frameWidthRGB=imageWidth, frameHeightRGB=imageHeight,
+                  frameWidthDepth=imageWidth, frameHeightDepth=imageHeight, deviceId=id2, readMode=0)
 ##### Specify the directory to save real time data ####
  # Change this to your directory
 
@@ -238,7 +245,7 @@ def hsvRange(image, colourRanges):
 # -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 # region: Command QArm
 ##### Function to calculate the distance between real time end effector and cmd position #####
-def positionChecker(positionCmd, tolerance):
+def positionChecker(arm, armUtilities, positionCmd, tolerance):
 
     ''' Check if the arm reaches the commanded position and wait until it does or report if it's not reachable within the timeout. 
     If position is unreachable, stop further operations. '''
@@ -248,10 +255,10 @@ def positionChecker(positionCmd, tolerance):
 
     while True:
         # Read the current arm state
-        myArm.read_std()
+        arm.read_std()
 
         # Get the current position using forward kinematics
-        currentPosition, _ = myArmUtilities.qarm_forward_kinematics(myArm.measJointPosition[0:4])
+        currentPosition, _ = armUtilities.qarm_forward_kinematics(arm.measJointPosition[0:4])
 
         # Calculate the distance between the current position and the commanded position
         distanceToCmd = np.linalg.norm(currentPosition - positionCmd)
@@ -276,29 +283,19 @@ def positionChecker(positionCmd, tolerance):
 tolerance1 = 0.03 # Set the position tolerance 0.03, 0.045
 tolerance2 = 0.045
 
-def pickAndPlace(position, colour, cellType, idx):
+def pickAndPlace(arm, armUtilities, position, colour, cellType, idx):
 
     ''' This function configures the pick-and-place task. '''
 
     positionCmd, gripCmd, ledCmd = position
-    _, phiCmd = myArmUtilities.qarm_inverse_kinematics(positionCmd, 0, myArm.measJointPosition[0:4])
+    _, phiCmd = armUtilities.qarm_inverse_kinematics(positionCmd, 0, arm.measJointPosition[0:4])
 
     # Move to the object Pickup position
     print(f"Moving to Pickup Object {idx + 1}: {colour} {cellType}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
-    if not positionChecker(positionCmd, tolerance1):
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
+    if not positionChecker(arm, armUtilities, positionCmd, tolerance1):
         return
-    
-# ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
 
-    ''' Warning: Inappropriate gripper close commands would lead to QArm motor overload and shutdown. 
-    Select gripper open/close command values based on object size. '''
-
-    ''' Set up dual gripper commands for two different cell types. 
-    gripCmd = 0.8 # Using 0.8 for D-cell and 0.85 for 18650 cell.
-    set up a single gripper commands for one cell type.'''
-
-## THE FOLLOWING IF STATEMENTS MAY NEED TO BE ADJUSTED TO ENSURE GOOD GRIP ON CELLS
     if cellType == 'D-cell':
         gripCmd = 0.80
     elif cellType == '18650 cell':
@@ -306,66 +303,56 @@ def pickAndPlace(position, colour, cellType, idx):
     else:
         gripCmd = 0.5 # Default open
 
-# ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
-## THE FOLLOWING REGION CONTROLS MOVEMENT
-
     # Close the gripper based on cell type
     print(f"Closing gripper for {idx + 1} {colour} {cellType}: {gripCmd}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)  # Adjust if necessary
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)  # Adjust if necessary
     time.sleep(1.5) # Gripper close time
 
     # Lift the object. Ensure only once per object without accumulating over cycles
     liftUpPosition = list(positionCmd)
     liftUpPosition[2] += 0.1 # Adjust if necessary
     print(f"Lifting Object {idx + 1}: {colour} {cellType}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-    _, phiCmd = myArmUtilities.qarm_inverse_kinematics(liftUpPosition, 0, myArm.measJointPosition[0:4])
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
-    if not positionChecker(np.array(liftUpPosition), tolerance2):
+    _, phiCmd = armUtilities.qarm_inverse_kinematics(liftUpPosition, 0, arm.measJointPosition[0:4])
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
+    if not positionChecker(arm, armUtilities, np.array(liftUpPosition), tolerance2):
         return
-    
-    # Move to bin position
-# ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
 
     ''' Dropping objects according to their sizes and colours. '''
-
     if colour == 'Red':
         if cellType == '18650 cell':
             positionCmd, ledCmd = red18650cellBinPosition
         else:
-            positionCmd, ledCmd = homePosition # Default to home position if no cell type is identified  
-    elif colour == 'Green': # If cell detected is green
+            positionCmd, ledCmd = homePosition 
+    elif colour == 'Green': 
         if cellType == '18650 cell':
             positionCmd, ledCmd = green18650cellBinPosition
         else:
-            positionCmd, ledCmd = homePosition # Default to home position if no cell type is identified  
-    elif colour == 'Blue': # If cell detected is blue
+            positionCmd, ledCmd = homePosition 
+    elif colour == 'Blue': 
         if cellType == '18650 cell':
             positionCmd, ledCmd = blue18650cellBinPosition
         else:
-            positionCmd, ledCmd = homePosition # Default to home position if no cell type is identified  
+            positionCmd, ledCmd = homePosition 
     else:
-        positionCmd, ledCmd = homePosition # Default to home position if no cell colour is identified 
+        positionCmd, ledCmd = homePosition 
 
-    print(f"Moving Object {idx + 1}: {colour} {cellType} to {colour} {cellType} bin position: {positionCmd}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
+    print(f"Moving Object {idx + 1}: {colour} {cellType} to bin position: {positionCmd}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
 
-## THE FOLLOWING REGION CONTROLS USER INTERFACEFEATURES AND DATA LOGGING AND SHOULD NOT BE CHANGED
-# ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
-
-    _, phiCmd = myArmUtilities.qarm_inverse_kinematics(positionCmd, 0, myArm.measJointPosition[0:4])
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
-    if not positionChecker(positionCmd, tolerance1):
+    _, phiCmd = armUtilities.qarm_inverse_kinematics(positionCmd, 0, arm.measJointPosition[0:4])
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=gripCmd, baseLED=ledCmd)
+    if not positionChecker(arm, armUtilities, positionCmd, tolerance1):
         return
 
     # Open gripper to drop object
     print(f"Dropping Object {idx + 1}: {colour} {cellType}. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=pickUpPosition[1], baseLED=ledCmd)  # Adjust if necessary
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=pickUpPosition[1], baseLED=ledCmd)  # Adjust if necessary
     time.sleep(1.5) # Gripper open time
 
     # Return to the Pickup position
     print(f"Returning to Pickup position. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-    _, phiCmd = myArmUtilities.qarm_inverse_kinematics(pickUpPosition[0], 0, myArm.measJointPosition[0:4])
-    myArm.read_write_std(phiCMD=phiCmd, grpCMD=pickUpPosition[1], baseLED=pickUpPosition[2])
-    if not positionChecker(pickUpPosition[0], tolerance1):
+    _, phiCmd = armUtilities.qarm_inverse_kinematics(pickUpPosition[0], 0, arm.measJointPosition[0:4])
+    arm.read_write_std(phiCMD=phiCmd, grpCMD=pickUpPosition[1], baseLED=pickUpPosition[2])
+    if not positionChecker(arm, armUtilities, pickUpPosition[0], tolerance1):
         return
 
 # endregion
@@ -610,26 +597,49 @@ try:
             time.sleep(0.5) # Initialisation lag time
             print(f"QArm communication channels fully initialised")
 
-            _, phiCmd = myArmUtilities.qarm_inverse_kinematics(homePosition[0], 0, myArm.measJointPosition[0:4])
-            myArm.read_write_std(phiCMD=phiCmd, grpCMD=homePosition[1], baseLED=homePosition[2])
+            # Helper function to move an arm home so we can thread it
+            def move_home(arm, armUtils, armName):
+                _, phiCmd = armUtils.qarm_inverse_kinematics(homePosition[0], 0, arm.measJointPosition[0:4])
+                arm.read_write_std(phiCMD=phiCmd, grpCMD=homePosition[1], baseLED=homePosition[2])
+                if not positionChecker(arm, armUtils, homePosition[0], tolerance1):
+                    print(f"Failed to move {armName} to home.")
+                else:
+                    print(f"{armName} at home position.")
 
-            if not positionChecker(homePosition[0], tolerance1):
-                break
-            else:
-                print("QArm at home position.")
+            # Create threads for simultaneous movement
+            t1 = threading.Thread(target=move_home, args=(myArm, myArmUtilities, "Arm 1"))
+            t2 = threading.Thread(target=move_home, args=(myArm2, myArmUtilities2, "Arm 2"))
+
+            # Start and wait for both threads to finish
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
 
             atHomePosition = True # Loop once
 
         ### Step 2: Move to the detection position ###
         if atHomePosition:
-            _, phiCmd = myArmUtilities.qarm_inverse_kinematics(detectPosition[0], 0, myArm.measJointPosition[0:4])
-            myArm.read_write_std(phiCMD=phiCmd, grpCMD=detectPosition[1], baseLED=detectPosition[2])
             
-            if not positionChecker(detectPosition[0], tolerance1):
-                break
-            else:
-                print(f"At detection position. Start detecting... Time elapsed: {int(elapsedTime()):.1f} seconds.")
+            def move_to_detect(arm, armUtils, armName):
+                _, phiCmd = armUtils.qarm_inverse_kinematics(detectPosition[0], 0, arm.measJointPosition[0:4])
+                arm.read_write_std(phiCMD=phiCmd, grpCMD=detectPosition[1], baseLED=detectPosition[2])
+                
+                if not positionChecker(arm, armUtils, detectPosition[0], tolerance1):
+                    print(f"Failed to move {armName} to detection position.")
+                else:
+                    print(f"{armName} at detection position.")
 
+            # Create threads for simultaneous movement
+            t1 = threading.Thread(target=move_to_detect, args=(myArm, myArmUtilities, "Arm 1"))
+            t2 = threading.Thread(target=move_to_detect, args=(myArm2, myArmUtilities2, "Arm 2"))
+            
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+
+            print(f"Both arms at detection position. Start detecting... Time elapsed: {int(elapsedTime()):.1f} seconds.")
             time.sleep(1) # Dwell time for moving to detection position and settle
 
         ### Step 3: Capture image and detect size / colour in each region ###
@@ -637,50 +647,85 @@ try:
         try:
             for _ in range(5):  # Refresh 2 times at least
                 myCam.read_RGB()
-                frame = myCam.imageBufferRGB  
+                myCam2.read_RGB() # Refresh Arm 2 camera
             time.sleep(0.2)  # Refresh time
 
-            # Capture the RGB image, and plot the original RGB and mask
+            # Capture the RGB image for Arm 1
             myCam.read_RGB()
-            frame = myCam.imageBufferRGB
-            drawRoos(frame, rooPositions)
-            combinedMask = hsvRange(frame, colourRanges)  # Call the mask function
-            cv2.imshow('Original RGB with ROO', frame)
-            cv2.imshow('Combined Mask', combinedMask)
+            frame1 = myCam.imageBufferRGB
+            drawRoos(frame1, rooPositions)
+            combinedMask1 = hsvRange(frame1, colourRanges)  
+            
+            # Capture the RGB image for Arm 2
+            myCam2.read_RGB()
+            frame2 = myCam2.imageBufferRGB
+            drawRoos(frame2, rooPositions)
+            combinedMask2 = hsvRange(frame2, colourRanges)
+
+            # Show feeds for both arms
+            cv2.imshow('Arm 1: Original RGB with ROO', frame1)
+            cv2.imshow('Arm 1: Combined Mask', combinedMask1)
+            cv2.imshow('Arm 2: Original RGB with ROO', frame2)
+            cv2.imshow('Arm 2: Combined Mask', combinedMask2)
             cv2.waitKey(1)
 
         except Exception as e:
             print(f"Camera error: {e}")
             break
 
-        # List to store cell type and colour
-        detectedCellTypes = []
-        detectedColours = []
+        # Lists to store cell type and colour for BOTH arms
+        detectedCellTypes1 = []
+        detectedColours1 = []
+        detectedCellTypes2 = []
+        detectedColours2 = []
 
         for idx, rooPosition in enumerate(rooPositions):
-            detectedCellType, detectedColour = detectColourAndSize(frame, rooPosition)
-            detectedCellTypes.append(detectedCellType)
-            detectedColours.append(detectedColour)
+            # Detect objects for Arm 1 using frame1
+            cellType1, colour1 = detectColourAndSize(frame1, rooPosition)
+            detectedCellTypes1.append(cellType1)
+            detectedColours1.append(colour1)
+            
+            # Detect objects for Arm 2 using frame2
+            cellType2, colour2 = detectColourAndSize(frame2, rooPosition)
+            detectedCellTypes2.append(cellType2)
+            detectedColours2.append(colour2)
 
-            # Print the detected cell type and colour for each object
-            if detectedCellType and detectedColour:
-                print(f"Object {idx + 1} detected as: {detectedColour} {detectedCellType}.")
-            else:
-                print(f"Object {idx + 1} detected as: None.")
+            print(f"Arm 1 - Object {idx + 1}: {colour1} {cellType1}")
+            print(f"Arm 2 - Object {idx + 1}: {colour2} {cellType2}")
 
         ### Step 4: Pick and place each object based on detected info ###
 
 # ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
         ''' Process pick and drop task according to their sizes and colours. '''
-            
-        objectsDetected = any(colour is not None and cellType is not None for colour, cellType in zip( detectedColours, detectedCellTypes))
-        if objectsDetected:
-            for idx, (detectedColour, detectedCellType) in enumerate(zip(detectedColours, detectedCellTypes)):
-                if detectedColour and detectedCellType:  # Proceed only if both colour and type are detected
-                    pickAndPlace(objectPositions[idx], detectedColour, detectedCellType, idx)
 
-                else:
-                    print(f"Object {idx + 1} is not detected. Skipping to next detected object.")
+
+        objectsDetected1 = any(colour is not None for colour in detectedColours1)
+        objectsDetected2 = any(colour is not None for colour in detectedColours2)
+        
+        if objectsDetected1 or objectsDetected2:
+            active_threads = []
+            
+            # Since there are 4 objects per arm, we loop 4 times
+            for idx in range(4):
+                
+                # If Arm 1 sees an object at this index, send it to grab it
+                if detectedColours1[idx] and detectedCellTypes1[idx]:
+                    t1 = threading.Thread(target=pickAndPlace, args=(myArm, myArmUtilities, objectPositions[idx], detectedColours1[idx], detectedCellTypes1[idx], idx))
+                    active_threads.append(t1)
+                    t1.start()
+                    
+                # If Arm 2 sees an object at this index, send it to grab it
+                if detectedColours2[idx] and detectedCellTypes2[idx]:
+                    t2 = threading.Thread(target=pickAndPlace, args=(myArm2, myArmUtilities2, objectPositions[idx], detectedColours2[idx], detectedCellTypes2[idx], idx))
+                    active_threads.append(t2)
+                    t2.start()
+
+                # Wait for both arms to finish their current object before moving to the next index
+                for t in active_threads:
+                    t.join()
+                
+                # Clear the thread list for the next object
+                active_threads.clear()
 
 # ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** **
 
@@ -692,10 +737,28 @@ try:
                 workSpace.cell_spawn()
             else:
                 print(f"No object is detected. Returning to home position. Time elapsed: {int(elapsedTime()):.1f} seconds.")
-                _, phiCmd = myArmUtilities.qarm_inverse_kinematics(homePosition[0], 0, myArm.measJointPosition[0:4])
-                myArm.read_write_std(phiCMD=phiCmd, grpCMD=homePosition[1], baseLED=homePosition[2])
+                
+                # Helper function for returning home before shutting down
+                def return_home(arm, armUtils):
+                    _, phiCmd = armUtils.qarm_inverse_kinematics(homePosition[0], 0, arm.measJointPosition[0:4])
+                    arm.read_write_std(phiCMD=phiCmd, grpCMD=homePosition[1], baseLED=homePosition[2])
+                    positionChecker(arm, armUtils, homePosition[0], tolerance1)
+
+                # Send both arms home simultaneously
+                t1 = threading.Thread(target=return_home, args=(myArm, myArmUtilities))
+                t2 = threading.Thread(target=return_home, args=(myArm2, myArmUtilities2))
+                
+                t1.start()
+                t2.start()
+                t1.join()
+                t2.join()
+
                 time.sleep(1) # Wait time to terminate
+                
+                # Terminate BOTH arms
                 myArm.terminate()
+                myArm2.terminate() 
+                
                 stopLogging = True
                 stopEvent.set()
                 final_fig()
