@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from qvl.shredder import QLabsShredder
 import numpy as np
-
+import time
 class QArmWorkspace:
 
     ''' This QArm workspace class is used to create the work environment for QArm to proceed the pick and drop tasks. 
@@ -198,7 +198,7 @@ class QArmWorkspace:
                                      waitForConfirmation=True)        
 # --- 2. MIRRORED EXTENSIONS FOR ROBOT 2 ---
         self.redconveyor2 = QLabsConveyorStraight(self.qlabs)
-        self.redconveyor2.spawn_id(actorNumber=34,
+        self.redconveyor2.spawn_id(actorNumber=39,
                                   location=[0.3, 1.4, 0.15],
                                   rotation=[0,0,np.deg2rad(270)],
                                   scale=[1,1,1],
@@ -351,9 +351,14 @@ class QArmWorkspace:
         self.cellWidget.widget_spawn_shadow(enableShadow=True)
         scale = [[0.028, 0.028, 0.06]]
         color = [[0.6, 0, 0],[0,0.6,0],[0,0,0.6]] # 3 colors of random cell
-        locations = [[0.58, -0.7, 0.4], [0.58, -0.8, 0.4], [0.58, -0.9, 0.4], [0.58, -1, 0.4]]
+        
+        # Arm 1 locations
+        locations_arm1 = [[0.58, -0.7, 0.4], [0.58, -0.8, 0.4], [0.58, -0.9, 0.4], [0.58, -1, 0.4]]
+        # Arm 2 locations (Mirrored across the Y axis)
+        locations_arm2 = [[0.58, 0.7, 0.4], [0.58, 0.8, 0.4], [0.58, 0.9, 0.4], [0.58, 1, 0.4]]
 
-        for location in locations:
+        # Loop through all 8 locations
+        for location in locations_arm1 + locations_arm2:
             scale1 = randrange(1)
             color1 = randrange(3)
             self.cellWidget.spawn(location=location,
@@ -362,9 +367,9 @@ class QArmWorkspace:
                              configuration= self.cellWidget.CYLINDER,
                              color=color[color1],
                              measuredMass=100,
-                             IDTag=0,
-                             properties='',
-                             waitForConfirmation=True)
+                             properties='')
+            
+            time.sleep(0.1) # Give QLabs a fraction of a second to spawn
 # endregion
     def control_conveyor(self, speed):
         ''' 
@@ -390,19 +395,21 @@ class QArmWorkspace:
     ##### Start real time model with the arm #####
 
     def start_real_time_model(self):
-
         ''' Start the real-time model for QArm. '''
-
         print("Starting real-time model...")
 
-        qarm_model_path = os.path.join(os.environ['RTMODELS_DIR'], 'QArms/QArm_Spawn0')
+        # Safely construct the file paths for Windows
+        qarm_model_path1 = os.path.normpath(os.path.join(os.environ['RTMODELS_DIR'], 'QArms', 'QArm_Spawn2'))
+        time.sleep(10.0)
+        qarm_model_path2 = os.path.normpath(os.path.join(os.environ['RTMODELS_DIR'], 'QArms', 'QArm_Spawn3'))
 
-        # current_dir = Path(__file__).resolve().parent
-        # project_root = current_dir.parent
-        # qarm_model_path = project_root / 'libraries' / 'resources' / 'rtmodels' / 'QArms' / 'QArm_Spawn0'
-
-        QLabsRealTime().start_real_time_model(qarm_model_path, actorNumber=3,
+        # Start Arm 1
+        QLabsRealTime().start_real_time_model(qarm_model_path1, actorNumber=3,
                                                additionalArguments='-uri_hil tcpip://localhost:18900 -uri_video tcpip://localhost:18901')
+
+        # Start Arm 2
+        QLabsRealTime().start_real_time_model(qarm_model_path2, actorNumber=34,
+                                               additionalArguments='-uri_hil tcpip://localhost:18902 -uri_video tcpip://localhost:18903')
 
         print("Real-time model started.")
 
